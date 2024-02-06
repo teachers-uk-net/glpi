@@ -862,7 +862,7 @@ class MailCollector extends CommonDBTM
                     if (isset($tkt['_blacklisted']) && $tkt['_blacklisted']) {
                         $delete[$uid] =  self::REFUSED_FOLDER;
                         $blacklisted++;
-                    } else if (isset($tkt['_refuse_email_with_response'])) {
+                    } else if ($tkt['_refuse_email_with_response']) {
                         $delete[$uid] =  self::REFUSED_FOLDER;
                         $refused++;
                         $this->sendMailRefusedResponse($requester, $tkt['name']);
@@ -1038,6 +1038,7 @@ class MailCollector extends CommonDBTM
 
         $tkt                 = [];
         $tkt['_blacklisted'] = false;
+        $tkt['_refuse_email_with_response'] = false;
        // For RuleTickets
         $tkt['_mailgate']    = $options['mailgates_id'];
         $tkt['_uid']         = $uid;
@@ -1057,6 +1058,9 @@ class MailCollector extends CommonDBTM
            // Message is a response to a message sent by another GLPI.
            // Message is blacklisted as we consider that the other instance of GLPI is responsible to handle this thread.
             $tkt['_blacklisted'] = true;
+            return $tkt;
+        } else if  ($this->hasTooManyObservers($message)) {
+            $tkt['_refuse_email_with_response'] = true;
             return $tkt;
         }
 
@@ -2059,7 +2063,9 @@ class MailCollector extends CommonDBTM
         $mmail->AddAddress($to);
        // Normalized header, no translation
         $mmail->Subject  = 'Re: ' . $subject;
-        $mmail->Body     = __("Your email could not be processed.\nIf the problem persists, contact the administrator") .
+        $mmail->Body     = __("We do not accept tickets sent to more than seven email addresses (total unique addresses in To and Cc fields).\n") .
+                           __("If you would like support infrastructure or services provided by e-Research,") .
+                           __(" please re-submit your ticket with fewer addressees.") .
                          "\n-- \n" . $CFG_GLPI["mailing_signature"];
         $mmail->Send();
     }
@@ -2247,6 +2253,17 @@ class MailCollector extends CommonDBTM
        // - no UUID found matching current GLPI instance;
        // - at least one unknown UUID.
         return !$has_uuid_from_current_glpi && $has_uuid_from_another_glpi;
+    }
+
+    public function hasTooManyObservers(Message $message): bool
+    {
+        $headers = $this->getHeaders($message);
+        $tos_count = count($headers['tos']);
+        $ccs_count = count($headers['ccs']);
+        if (($tos_count + $ccs_count) > 7) {
+            return true;
+        }
+        return false;
     }
 
     /**
